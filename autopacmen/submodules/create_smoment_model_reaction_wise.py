@@ -98,12 +98,7 @@ def create_smoment_model_reaction_wise(model: cobra.Model, output_sbml_name: str
 
     # Make model irreversible, separating all reversible reactions to which a gene rule is given
     # in order to save some reactions.
-    # small mod: check if we can find a saved model that is already split, saving a lot of time
-    try:
-        model = cobra.io.read_sbml_model(project_folder + model.id + "_IRREV.xml")
-    except IOError:
-        model = get_irreversible_model(model, id_addition)
-        cobra.io.write_sbml_model(model, project_folder + model.id + "_IRREV.xml")
+    model = get_irreversible_model(model, id_addition)
 
     # Add prot_pool reaction according to the given protein pool values
     model, prot_pool_metabolite = add_prot_pool_reaction(model, id_addition, p_total, p_measured,

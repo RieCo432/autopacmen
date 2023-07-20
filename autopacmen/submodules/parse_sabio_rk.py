@@ -474,7 +474,7 @@ def get_ec_number_kcats_wildcard_search(ec_numbers: List[str],
         # are not already found.
         ec_numbers_to_analyze = list(set(ec_numbers) ^ set(all_found_ec_numbers))  # Difference
         # Add the current wildcard level to the searched EC numbers
-        searched_ec_numbers = [_add_wildcard_to_ec_number(x, wildcard_level) for x in ec_numbers_to_analyze if len(x.split(".")) >= 4]
+        searched_ec_numbers = [_add_wildcard_to_ec_number(x, wildcard_level) for x in ec_numbers_to_analyze]
         # If no searched EC numbers are left with the current wildcard level, quit the for loop since we
         # are done :D
         if searched_ec_numbers == []:
