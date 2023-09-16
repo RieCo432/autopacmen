@@ -27,7 +27,7 @@ import openpyxl
 from typing import Any, Dict, List
 # Internal modules
 from .helper_general import get_float_cell_value
-
+from tqdm import tqdm
 
 # PRIVATE FUNCTIONS
 def _read_stoichiometries_worksheet(workbook: openpyxl.Workbook):
@@ -175,49 +175,53 @@ def get_irreversible_model(model: cobra.Model, id_addition: str) -> cobra.Model:
     * id_addition: str ~ The string that is added before 'reversed' or 'forward'
     """
     model_reaction_ids = [x.id for x in model.reactions]
-    for reaction_id in model_reaction_ids:
-        reaction = model.reactions.get_by_id(reaction_id)
+    with tqdm(desc="Processing reactions", total=len(model_reaction_ids)) as pbar:
+        for reaction_id in model_reaction_ids:
+            reaction = model.reactions.get_by_id(reaction_id)
 
-        if reaction.lower_bound >= 0:
-            continue
-        if reaction.gene_reaction_rule == "":
-            continue
+            if reaction.lower_bound >= 0:
+                pbar.update()
+                continue
+            if reaction.gene_reaction_rule == "":
+                pbar.update()
+                continue
 
-        forward_reaction = copy.deepcopy(reaction)
-        forward_reaction.upper_bound = reaction.upper_bound
-        forward_reaction.lower_bound = 0
-        forward_reaction.id += id_addition + "forward"
-        forward_reaction_metabolites_copy = copy.deepcopy(
-            forward_reaction.metabolites)
-        for key in list(forward_reaction_metabolites_copy.keys()):
-            if key.id.startswith("armm_"):
-                if key.id.endswith("reverse"):
-                    forward_reaction_metabolites_copy[key] = -1
+            forward_reaction = copy.deepcopy(reaction)
+            forward_reaction.upper_bound = reaction.upper_bound
+            forward_reaction.lower_bound = 0
+            forward_reaction.id += id_addition + "forward"
+            forward_reaction_metabolites_copy = copy.deepcopy(
+                forward_reaction.metabolites)
+            for key in list(forward_reaction_metabolites_copy.keys()):
+                if key.id.startswith("armm_"):
+                    if key.id.endswith("reverse"):
+                        forward_reaction_metabolites_copy[key] = -1
+                    else:
+                        forward_reaction_metabolites_copy[key] = 0
                 else:
                     forward_reaction_metabolites_copy[key] = 0
-            else:
-                forward_reaction_metabolites_copy[key] = 0
-        forward_reaction.add_metabolites(forward_reaction_metabolites_copy)
-        model.add_reactions([forward_reaction])
+            forward_reaction.add_metabolites(forward_reaction_metabolites_copy)
+            model.add_reactions([forward_reaction])
 
-        reverse_reaction = copy.deepcopy(reaction)
-        reverse_reaction.id += id_addition + "reverse"
-        reverse_reaction.upper_bound = -reaction.lower_bound
-        reverse_reaction.lower_bound = 0
-        reverse_reaction_metabolites_copy = copy.deepcopy(
-            reverse_reaction.metabolites)
-        for key in list(reverse_reaction_metabolites_copy.keys()):
-            if not key.id.startswith("armm_"):
-                reverse_reaction_metabolites_copy[key] *= -2
-            else:
-                if key.id.endswith("reverse"):
-                    reverse_reaction_metabolites_copy[key] *= 0
-                elif key.id.endswith("forward"):
-                    reverse_reaction_metabolites_copy[key] *= -1
-        reverse_reaction.add_metabolites(reverse_reaction_metabolites_copy)
-        model.add_reactions([reverse_reaction])
+            reverse_reaction = copy.deepcopy(reaction)
+            reverse_reaction.id += id_addition + "reverse"
+            reverse_reaction.upper_bound = -reaction.lower_bound
+            reverse_reaction.lower_bound = 0
+            reverse_reaction_metabolites_copy = copy.deepcopy(
+                reverse_reaction.metabolites)
+            for key in list(reverse_reaction_metabolites_copy.keys()):
+                if not key.id.startswith("armm_"):
+                    reverse_reaction_metabolites_copy[key] *= -2
+                else:
+                    if key.id.endswith("reverse"):
+                        reverse_reaction_metabolites_copy[key] *= 0
+                    elif key.id.endswith("forward"):
+                        reverse_reaction_metabolites_copy[key] *= -1
+            reverse_reaction.add_metabolites(reverse_reaction_metabolites_copy)
+            model.add_reactions([reverse_reaction])
 
-        model.remove_reactions([reaction])
+            model.remove_reactions([reaction])
+            pbar.update()
     return model
 
 

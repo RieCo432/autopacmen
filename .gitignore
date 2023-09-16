@@ -1,6 +1,7 @@
 # AutoPACMEN-custom gitignores:
 autopacmen/ec_model_2019_06_25_input/brenda_download.txt
 
+*/.idea
 # Default GitHub Python .gitignore file content:
 # Distribution / packaging
 .Python

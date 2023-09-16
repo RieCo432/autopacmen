@@ -26,7 +26,7 @@ import time
 from typing import Dict, List
 # Internal modules
 from .helper_general import ensure_folder_existence, get_files, json_write, pickle_write, pickle_load, standardize_folder
-
+import json
 
 # PUBLIC FUNCTIONS SECTION
 def get_protein_mass_mapping(model: cobra.Model, project_folder: str, project_name: str) -> None:
@@ -80,69 +80,43 @@ def get_protein_mass_mapping(model: cobra.Model, project_folder: str, project_na
     ensure_folder_existence("./_cache/")
     ensure_folder_existence(cache_basepath)
     cache_files = get_files(cache_basepath)
-    # Go through each batch of UniProt IDs (multiple UniProt IDs
-    # are searched at once in order to save an amount of UniProt API calls)
-    # and retrieve the amino acid sequences and using these sequences, their
-    # masses.
+    # Go through each UniProt ID and retrieve the amino acid sequences and using these sequences, their masses.
     print("Starting UniProt ID<->Protein mass search using UniProt API...")
     uniprot_ids = list(uniprot_id_protein_id_mapping.keys())
-    batch_size = 5
-    batch_start = 0
-    while batch_start < len(uniprot_ids):
-        # Create the batch with all UniProt IDs
-        prebatch = uniprot_ids[batch_start:batch_start+batch_size]
-        batch = []
-        # Remove all IDs which are present in the cache (i.e.,
-        # which were searched for already).
+    for uniprot_id in uniprot_ids:
+        # if cached, load and skip
         # The cache consists of pickled protein mass floats, each
-        # onein a file with the name of the associated protein.
-        for uniprot_id in prebatch:
-            if uniprot_id not in cache_files:
-                batch.append(uniprot_id)
-            else:
-                cache_filepath = cache_basepath + uniprot_id
-                uniprot_id_protein_mass_mapping[uniprot_id] = pickle_load(cache_filepath)
-                print(uniprot_id+":", uniprot_id_protein_mass_mapping[uniprot_id])
-
-        # If all IDs could be found in the cache, continue with the next batch.
-        if len(batch) == 0:
-            batch_start += batch_size
+        # one in a file with the name of the associated protein.
+        if uniprot_id in cache_files:
+            cache_filepath = cache_basepath + uniprot_id
+            uniprot_id_protein_mass_mapping[uniprot_id] = pickle_load(cache_filepath)
+            print(uniprot_id+":", uniprot_id_protein_mass_mapping[uniprot_id])
             continue
 
-        # Create the UniProt query for the batch
-        # With 'OR', all given IDs are searched, and subsequently in this script,
-        # the right associated masses are being picked.
-        query = " OR ".join(batch)
-        uniprot_query_url = f"https://www.uniprot.org/uniprot/?query={query}&format=tab&columns=id,mass"
-        print(f"UniProt batch search for: {query}")
+        # Create the UniProt query for the protein
+        uniprot_query_url = f"https://www.ebi.ac.uk/proteins/api/proteins/{uniprot_id}"
+        print(f"UniProt search for: {uniprot_id}")
 
-        # Call UniProt's API :-)
-        uniprot_data = requests.get(uniprot_query_url).text.split("\n")
+        try:
+            # Call UniProt's API :-)
+            uniprot_response = requests.get(uniprot_query_url, headers={"Accept": "application/json"})
+            if not uniprot_response.ok:
+                raise Exception("Error with UniProt API")
+            response_body = uniprot_response.text
+
+            parsed = json.loads(response_body)
+
+            uniprot_id_protein_mass_mapping[uniprot_id] = float(parsed["sequence"]["mass"])
+
+        except Exception:
+            pass
+
+        if uniprot_id in uniprot_id_protein_mass_mapping: # Takes into account that we may fail to obtain a UniProt ID
+            cache_filepath = cache_basepath + uniprot_id
+            pickle_write(cache_filepath, uniprot_id_protein_mass_mapping[uniprot_id])
+
         # Wait in order to cool down their server :-)
-        time.sleep(2.0)
-
-        # Read out the API-returned lines
-        for line in uniprot_data[1:]:
-            if line == "":
-                continue
-            uniprot_id = line.split("\t")[0]
-            mass_string = line.split("\t")[1]
-            try:
-                # Note that the mass entry from UniProt uses a comma as a thousand separator, so it has to be removed before parsing
-                mass = float(mass_string.replace(",",""))
-            except ValueError: # We may also risk the entry is missing
-               # print(f"No protein mass obtainable for protein ID {uniprot_id}")
-                continue
-            uniprot_id_protein_mass_mapping[uniprot_id] = float(mass)
-
-        # Create the pickled cache files for the searched protein masses
-        for uniprot_id in batch:
-            if uniprot_id in uniprot_id_protein_mass_mapping: # Takes into account that we may fail to obtain a UniProt ID
-                cache_filepath = cache_basepath + uniprot_id
-                pickle_write(cache_filepath, uniprot_id_protein_mass_mapping[uniprot_id])
-
-        # Continue with the next batch :D
-        batch_start += batch_size
+        time.sleep(0.4)
 
     # Create the final protein ID <-> mass mapping
     protein_id_mass_mapping: Dict[str, float] = {}

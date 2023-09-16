@@ -27,6 +27,7 @@ from typing import List, Dict
 from .helper_general import json_load, standardize_folder
 from .helper_create_model import add_prot_pool_reaction, get_irreversible_model, get_p_measured, \
     read_enzyme_stoichiometries_xlsx, read_protein_data_xlsx
+import pickle
 
 
 # PUBLIC FUNCTIONS
@@ -86,8 +87,17 @@ def create_gecko_model_reaction_wise(model: cobra.Model, output_sbml_name: str,
     # Calculate p_measured
     p_measured = get_p_measured(
         protein_id_concentration_mapping, protein_id_mass_mapping)
-    # Make model irreversible
-    model = get_irreversible_model(model, id_addition)
+
+    # Make model irreversible, separating all reversible reactions to which a gene rule is given
+    # in order to save some reactions.
+    # small mod: check if we can find a saved model that is already split, saving a lot of time
+    # if no saved model is found, it is created and saved
+    try:
+        model = cobra.io.read_sbml_model(project_folder + model.id + "_IRREV.xml")
+    except IOError:
+        model = get_irreversible_model(model, id_addition)
+        cobra.io.write_sbml_model(model, project_folder + model.id + "_IRREV.xml")
+
     # Add prot_pool reaction
     model, prot_pool_metabolite = add_prot_pool_reaction(model, id_addition, p_total, p_measured,
                                                          unmeasured_protein_fraction, mean_saturation)
@@ -122,9 +132,30 @@ def create_gecko_model_reaction_wise(model: cobra.Model, output_sbml_name: str,
             model.add_reactions([er])
 
     # Add enzymes to reactions
-    current_arm_reaction = 1
     model_reaction_ids = [x.id for x in model.reactions]
+    # see if a partially GECKOed model exists and if so, restore from there. Otherwise start from beginning
+    try:
+        with open(project_folder + "reactions_completed.pickle", "rb") as fin:
+            reactions_completed = pickle.load(fin)
+    except FileNotFoundError:
+        reactions_completed = []
+
+    try:
+        with open(project_folder + "current_arm_reaction.pickle", "rb") as fin:
+            current_arm_reaction = pickle.load(fin)
+    except FileNotFoundError:
+        current_arm_reaction = 1
+
+    try:
+        model = cobra.io.read_sbml_model(project_folder + output_sbml_name.replace(".xml", "_PARTIAL.xml"))
+    except OSError:
+        pass
+
     for model_reaction_id in model_reaction_ids:
+        # if this reaction has already been done, skip
+        print(model_reaction_id)
+        if model_reaction_id in reactions_completed:
+            continue
         reaction = model.reactions.get_by_id(model_reaction_id)
         splitted_id = reaction.id.split(id_addition)
 
@@ -166,28 +197,29 @@ def create_gecko_model_reaction_wise(model: cobra.Model, output_sbml_name: str,
         if reaction_id in reactions_kcat_mapping_database.keys():
             forward_kcat = reactions_kcat_mapping_database[reaction_id]["forward"]
             reverse_kcat = reactions_kcat_mapping_database[reaction_id]["reverse"]
-        # If the reaction is not in the database, set the default kcat
+        # If the reaction is not in the database, skip
         else:
-            forward_kcat = default_kcat
-            reverse_kcat = default_kcat
-
-        # If the given reaction<->kcat database contains math.nan as the reaction's kcat,
-        # set the default kcat as math.nan means that no kcat could be found.
-        if math.isnan(forward_kcat):
-            forward_kcat = default_kcat
-        if math.isnan(reverse_kcat):
-            reverse_kcat = default_kcat
+            continue
 
         # Add the given forward or reverse kcat is the reaction was
         # splitted due to its reversibility.
         # If the reaction is not splitted, add the forward kcat (this
         # is the only possible direction for non-splitted=non-reversible
         # reactions)
+        # If the given reaction<->kcat database contains math.nan as the reaction's kcat,
+        # skip, as math.nan means that no kcat could be found.
         if model_reaction_id.endswith(id_addition + "forward"):
+            if math.isnan(forward_kcat):
+                continue
             reaction_kcat = forward_kcat
         elif model_reaction_id.endswith(id_addition + "reverse"):
+            if math.isnan(reverse_kcat):
+                continue
             reaction_kcat = reverse_kcat
+
         else:
+            if math.isnan(forward_kcat):
+                continue
             reaction_kcat = forward_kcat
 
         # Add arm reaction if isozymes occur
@@ -265,6 +297,15 @@ def create_gecko_model_reaction_wise(model: cobra.Model, output_sbml_name: str,
             i += 1
         model.add_reactions(new_reactions)
         model.remove_reactions([reaction])
+
+        # every 30 reactions, save the current partially GECKOed model as a checkpoint
+        reactions_completed.append(model_reaction_id)
+        if len(reactions_completed) % 30 == 0:
+            cobra.io.write_sbml_model(model, project_folder+output_sbml_name.replace(".xml", "_PARTIAL.xml"))
+            with open(project_folder + "reactions_completed.pickle", "wb") as fout:
+                pickle.dump(reactions_completed, fout)
+            with open(project_folder + "current_arm_reaction.pickle", "wb") as fout:
+                pickle.dump(current_arm_reaction, fout)
 
     cobra.io.write_sbml_model(model, project_folder+output_sbml_name)
 

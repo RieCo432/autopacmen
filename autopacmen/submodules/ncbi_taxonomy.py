@@ -23,6 +23,7 @@ This module contains functions which can access NCBI TAXONOMY.
 import time
 from Bio import Entrez
 from typing import Dict, List
+from urllib.error import HTTPError
 
 
 # SCRIPT-WIDE CONSTANTS
@@ -136,7 +137,22 @@ def get_taxonomy_from_organism_ncbi_id_batch(organism_ncbi_ids: List[str]) -> Di
         organism_ncbi_ids_slice = organism_ncbi_ids[batch_start:batch_start+NCBI_BATCH_SIZE]
         query_ids = " OR ".join(organism_ncbi_ids_slice)
         Entrez.email = "x@x.x"
-        handle = Entrez.efetch(db="Taxonomy", id=query_ids, retmode="xml")
+        # allow for up to 3 fails before raising error
+        fails = 0
+        max_fails = 3
+        error = None
+        while fails < max_fails:
+            try:
+                handle = Entrez.efetch(db="Taxonomy", id=query_ids, retmode="xml")
+            except HTTPError as e:
+                fails += 1
+                error = e
+                print("Request failed", fails, "times.")
+            else:
+                break
+        if fails == max_fails and error:
+            print("Max fails reached")
+            raise error
         records = Entrez.read(handle)
         for record in records:
             taxonomy = record["Lineage"].split(";")[::-1]

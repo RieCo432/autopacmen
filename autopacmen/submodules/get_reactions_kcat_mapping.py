@@ -56,7 +56,8 @@ def _get_kcat_from_protein_kcat_database(searched_direction: str, reaction: cobr
     # Get the maximal kcats for each gene name in the given reaction direction
     max_kcats = []
     for gene_name in gene_names:
-        if gene_name not in protein_kcat_database.keys():
+        # make sure both the gene and the reaction exist in our custom kcat database
+        if gene_name not in protein_kcat_database.keys() or reaction.id not in protein_kcat_database[gene_name]["direction"].keys():
             continue
         kcat_direction = protein_kcat_database[gene_name]["direction"][reaction.id]
         max_kcat = max(protein_kcat_database[gene_name]["kcats"])
@@ -309,7 +310,7 @@ def _print_assigned_kcats(reaction_id: str, forward_kcat: float, reverse_kcat: f
 
 # PUBLIC FUNCTIONS
 def get_reactions_kcat_mapping(sbml_path: str, project_folder: str, project_name: str,
-                               organism: str, kcat_database_path: str, protein_kcat_database_path: str,
+                               organism: str, kcat_database_path: str, protein_kcat_database_path: str, manual_kcat_override_path: str,
                                type_of_kcat_selection: str = "mean") -> None:
     """Returns a reaction<->kcat mapping for the given model :D
 
@@ -353,6 +354,12 @@ def get_reactions_kcat_mapping(sbml_path: str, project_folder: str, project_name
         protein_kcat_database = json_load(protein_kcat_database_path)
     else:
         protein_kcat_database = {}
+
+    # load the manual override dictionary if given
+    if manual_kcat_override_path != "":
+        manual_kcat_override = json_load(manual_kcat_override_path)
+    else:
+        manual_kcat_override = {}
 
     # Load the given stoichiometric model
     model = cobra.io.read_sbml_model(sbml_path)
@@ -477,6 +484,13 @@ def get_reactions_kcat_mapping(sbml_path: str, project_folder: str, project_name
         searched_products = _get_searched_metabolites(complete_entry, product_bigg_ids)
         # Get the reverse kcat depending on the products and the organism
         reverse_kcat = _get_kcat(searched_products, complete_entry, organism, "reverse", reaction, protein_kcat_database, type_of_kcat_selection)
+
+        # If there is a kcat in the manual override database, use that instead
+        if reaction.id in manual_kcat_override.keys():
+            if "forward_kcat" in manual_kcat_override[reaction.id].keys():
+                forward_kcat = manual_kcat_override[reaction.id]["forward_kcat"]
+            if "reverse_kcat" in manual_kcat_override[reaction.id].keys():
+                reverse_kcat = manual_kcat_override[reaction.id]["reverse_kcat"]
 
         # Set the found out kcats in the reactions<->kcat mapping :D
         reactions_kcat_mapping[reaction.id] = {}
