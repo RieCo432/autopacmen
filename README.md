@@ -1,4 +1,6 @@
 [![PyPI version](https://badge.fury.io/py/autopacmen-Paulocracy.svg)](https://badge.fury.io/py/autopacmen-Paulocracy)
+# This is a  modified version of the AutoPACMEN toolbox forked from https://github.com/klamt-lab/autopacmen
+
 
 # AutoPACMEN (Automatic integration of Protein Allocation Constraints for stoichiometric MEtabolic Networks)
 
